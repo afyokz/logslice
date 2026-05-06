@@ -2,75 +2,78 @@ package pipeline
 
 import (
 	"bufio"
+	"fmt"
 	"io"
+	"os"
 
-	"github.com/logslice/logslice/internal/exporter"
-	"github.com/logslice/logslice/internal/matcher"
-	"github.com/logslice/logslice/internal/scanner"
-	"github.com/logslice/logslice/internal/timeparser"
+	"github.com/yourorg/logslice/internal/cli"
+	"github.com/yourorg/logslice/internal/deduplicator"
+	"github.com/yourorg/logslice/internal/exporter"
+	"github.com/yourorg/logslice/internal/limiter"
+	"github.com/yourorg/logslice/internal/matcher"
+	"github.com/yourorg/logslice/internal/offsetter"
+	"github.com/yourorg/logslice/internal/progress"
+	"github.com/yourorg/logslice/internal/sampler"
+	"github.com/yourorg/logslice/internal/scanner"
 )
 
-// Config holds all parameters needed to run a pipeline.
-type Config struct {
-	Reader    io.Reader
-	Writer    io.Writer
-	From      string
-	To        string
-	Includes  []string
-	Excludes  []string
-	Numbered  bool
-	OutputFile string
-}
-
-// Result summarises what the pipeline processed.
-type Result struct {
-	Scanned  int
-	Matched  int
-	Exported int
-}
-
-// Run executes the full slice pipeline: scan → match → export.
-func Run(cfg Config) (Result, error) {
-	from, err := timeparser.ParseTimestamp(cfg.From)
+// Run executes the full log-slicing pipeline according to cfg.
+func Run(cfg *cli.Config, out io.Writer) error {
+	f, err := os.Open(cfg.Input)
 	if err != nil {
-		return Result{}, err
+		return fmt.Errorf("open input: %w", err)
 	}
-	to, err := timeparser.ParseTimestamp(cfg.To)
+	defer f.Close()
+
+	off := offsetter.New(cfg.TZOffset)
+	from := off.ShiftFrom(cfg.From)
+	to := off.ShiftFrom(cfg.To)
+
+	m, err := matcher.New(cfg.Include, cfg.Exclude)
 	if err != nil {
-		return Result{}, err
+		return fmt.Errorf("matcher: %w", err)
 	}
 
-	m, err := matcher.New(cfg.Includes, cfg.Excludes)
-	if err != nil {
-		return Result{}, err
-	}
+	sc := scanner.New(bufio.NewReader(f), from, to)
+	exp := exporter.New(out, cfg.Output, cfg.Numbered)
+	prog := progress.New(cfg.Verbose, cfg.Total, os.Stderr)
+	smp := sampler.New(cfg.Step)
+	lim := limiter.New(cfg.MaxLines)
+	dedup := deduplicator.New(cfg.DeduplicateWindow)
 
-	s := scanner.New(bufio.NewReader(cfg.Reader), from, to)
-	lines, scanErr := s.Scan()
+	var lines []string
+	for sc.Scan() {
+		prog.IncProcessed()
+		line := sc.Text()
 
-	var filtered []string
-	for _, l := range lines {
-		if m.Match(l) {
-			filtered = append(filtered, l)
+		if dedup.IsDuplicate(line) {
+			prog.IncSkipped()
+			continue
 		}
+
+		if !m.Match(line) {
+			prog.IncSkipped()
+			continue
+		}
+
+		if !smp.Keep() {
+			prog.IncSkipped()
+			continue
+		}
+
+		if lim.Reached() {
+			break
+		}
+
+		lim.Allow()
+		prog.IncMatched()
+		lines = append(lines, line)
 	}
 
-	ex, err := exporter.New(cfg.Writer, cfg.OutputFile, cfg.Numbered)
-	if err != nil {
-		return Result{}, err
-	}
-	exported, expErr := ex.Export(filtered)
-
-	if scanErr != nil {
-		return Result{}, scanErr
-	}
-	if expErr != nil {
-		return Result{}, expErr
+	if err := sc.Err(); err != nil {
+		return fmt.Errorf("scan: %w", err)
 	}
 
-	return Result{
-		Scanned:  len(lines),
-		Matched:  len(filtered),
-		Exported: exported,
-	}, nil
+	prog.Print()
+	return exp.Export(lines)
 }
