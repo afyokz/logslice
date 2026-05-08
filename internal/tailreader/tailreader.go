@@ -80,6 +80,13 @@ func (t *TailReader) Stop() error {
 	return t.file.Close()
 }
 
+// SeekToStart repositions the reader to the beginning of the file so that
+// all existing lines will be re-emitted on the next call to Lines.
+func (t *TailReader) SeekToStart() error {
+	_, err := t.file.Seek(0, io.SeekStart)
+	return err
+}
+
 func indexByte(b []byte, c byte) int {
 	for i, v := range b {
 		if v == c {
