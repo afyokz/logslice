@@ -41,6 +41,25 @@ func TestRun_InvalidIncludePattern_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestRun_InvalidExcludePattern_ReturnsError(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "follow-*.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err = Run(ctx, Config{
+		FilePath:  f.Name(),
+		Exclude:   []string{"["},
+		ExportCfg: exporter.Config{Writer: os.Stdout},
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid exclude regex")
+	}
+}
+
 func TestRun_ContextCancel_StopsCleanly(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "follow-*.log")
 	if err != nil {
