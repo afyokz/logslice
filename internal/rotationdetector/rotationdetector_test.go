@@ -86,6 +86,22 @@ func TestRotated_Deleted_ReturnsTrue(t *testing.T) {
 	}
 }
 
+func TestRotated_Disabled_ReturnsFalse(t *testing.T) {
+	// A detector created with an empty path is disabled; Rotated should
+	// always return false without error in this state.
+	d, err := rotationdetector.New("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	rotated, err := d.Rotated()
+	if err != nil {
+		t.Fatalf("unexpected error from disabled detector: %v", err)
+	}
+	if rotated {
+		t.Error("expected Rotated=false for disabled detector")
+	}
+}
+
 func TestReset_ClearsRotationState(t *testing.T) {
 	f := tmpFile(t, "line1\nline2\n")
 	d, err := rotationdetector.New(f)
