@@ -15,4 +15,8 @@
 //	// fields["msg"]   == "something went wrong"
 //
 // If the pattern is empty, the extractor is disabled and Extract returns nil.
+//
+// Patterns must use named capture groups (e.g. (?P<name>...)); unnamed groups
+// are ignored during extraction. At least one named group is recommended,
+// otherwise Extract will always return an empty map on a successful match.
 package fieldextractor
