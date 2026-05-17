@@ -92,3 +92,25 @@ func TestKeep_SkipOne(t *testing.T) {
 		t.Fatal("expected second line to be kept")
 	}
 }
+
+// TestReset_MultipleResets verifies that Reset can be called multiple times
+// and that the skipper behaves identically after each reset.
+func TestReset_MultipleResets(t *testing.T) {
+	s := lineskipper.New(2)
+
+	for cycle := 0; cycle < 3; cycle++ {
+		s.Reset()
+		if got := s.Keep("first"); got {
+			t.Errorf("cycle %d: expected first line to be dropped after reset", cycle)
+		}
+		if got := s.Keep("second"); got {
+			t.Errorf("cycle %d: expected second line to be dropped after reset", cycle)
+		}
+		if got := s.Keep("third"); !got {
+			t.Errorf("cycle %d: expected third line to be kept after reset", cycle)
+		}
+		if s.Count() != 2 {
+			t.Errorf("cycle %d: expected count=2, got %d", cycle, s.Count())
+		}
+	}
+}
